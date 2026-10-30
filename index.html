@@ -218,6 +218,7 @@ async function loadWeather(d) {
   const el = $("wx");
   if (!el) return;
   if (wxCache[d.id]) { showWeather(wxCache[d.id]); return; }
+  if (location.protocol === "file:") { showWeather({ error: "서버 없이 연 파일에서는 날씨를 불러올 수 없어요. 배포된 사이트에서 확인하세요" }); return; }
   el.className = "wx"; el.textContent = "⏳ 현재 날씨를 불러오는 중…";
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
   try {
