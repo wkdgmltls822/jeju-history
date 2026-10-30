@@ -57,6 +57,8 @@
   #detail .meta { font-size: 13px; color: var(--sub); margin-bottom: 8px; line-height: 1.7; }
   #detail p { line-height: 1.7; font-size: 14px; margin: 8px 0; white-space: pre-wrap; }
   #detail a { color: #2c5cc5; }
+  .wx { background: #eef6ff; border: 1px solid #cfe2fb; border-radius: 10px; padding: 8px 12px; margin: 6px 0 8px; font-size: 13px; line-height: 1.7; }
+  .wx.err { background: #fff4f2; border-color: #f5cfc8; color: #b3392a; }
   .pin { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,.4); position: relative; }
   .pin::after { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #fff; top: 7px; left: 7px; }
   .pin.on { box-shadow: 0 0 0 3px #f0b400, 0 2px 6px rgba(0,0,0,.5); }
@@ -191,10 +193,42 @@ function renderDetail(id) {
     `<h2>${esc(d.name)}</h2>
      <div class="meta"><span class="tag">${esc(d.category)}</span><span class="tag b">${esc(d.dir1)}${d.dir2 !== "해당없음" ? " › " + esc(d.dir2) : ""}</span><br>
        📍 ${esc(d.address)}<br>🧭 위도 ${d.lat} · 경도 ${d.lng}${d.keywords ? "<br>🏷 " + esc(d.keywords.replace(/\./g, ", ")) : ""}</div>
+     <div class="wx" id="wx"></div>
      ${favBtn(d)}
      <p><b>${esc(d.title)}</b></p>${d.subtitle ? `<div class="meta">${esc(d.subtitle)}</div>` : ""}
      <p>${esc(d.content)}</p>
      <div class="meta">저작자: ${esc(d.author)} · <a href="${esc(d.url)}" target="_blank" rel="noopener">제주도 누리집에서 전체 보기 ↗</a></div>`;
+  loadWeather(d);
+}
+
+// ---- 현재 날씨 (기상청 초단기실황, 서버 함수 /api/weather 경유 — 키는 서버 환경변수에만 있음) ----
+const wxCache = {};
+const PTY = ["없음", "비", "비/눈", "눈", "", "빗방울", "빗방울·눈날림", "눈날림"];
+const DIR = ["북", "북북동", "북동", "동북동", "동", "동남동", "남동", "남남동", "남", "남남서", "남서", "서남서", "서", "서북서", "북서", "북북서"];
+function showWeather(w) {
+  const el = $("wx");
+  if (!el) return;
+  if (w.error) { el.className = "wx err"; el.textContent = "⚠ 날씨 정보를 가져오지 못했어요. (" + w.error + ")"; return; }
+  const dir = w.wind_direction == null ? "" : DIR[Math.round(w.wind_direction / 22.5) % 16] + "풍 ";
+  el.className = "wx";
+  el.innerHTML = `<b>현재 날씨</b> <span class="meta">(기상청 · ${esc(w.base_date.slice(4, 6))}/${esc(w.base_date.slice(6))} ${esc(w.base_time.slice(0, 2))}시 기준)</span><br>
+    🌡 ${w.temperature}℃ · 💧 습도 ${w.humidity}% · 💨 ${dir}${w.wind_speed}m/s · ☔ ${PTY[w.pty] || "없음"}${w.rain_1h ? " (1시간 " + esc(w.rain_1h) + ")" : ""}`;
+}
+async function loadWeather(d) {
+  const el = $("wx");
+  if (!el) return;
+  if (wxCache[d.id]) { showWeather(wxCache[d.id]); return; }
+  el.className = "wx"; el.textContent = "⏳ 현재 날씨를 불러오는 중…";
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
+  try {
+    const res = await fetch(`/api/weather?lat=${d.lat}&lng=${d.lng}`, { signal: ctl.signal });
+    const w = await res.json().catch(() => ({ error: "서버 응답을 읽을 수 없음" }));
+    if (!res.ok && !w.error) w.error = "서버 오류 " + res.status;
+    if (!w.error) wxCache[d.id] = w;
+    if (selected === d.id) showWeather(w);
+  } catch (e) {
+    if (selected === d.id) showWeather({ error: e.name === "AbortError" ? "응답 시간 초과" : "연결 실패 — 배포된 사이트에서만 날씨가 표시돼요" });
+  } finally { clearTimeout(timer); }
 }
 
 function select(id, fly = true) {
