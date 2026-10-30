@@ -59,6 +59,8 @@
   #detail a { color: #2c5cc5; }
   .wx { background: #eef6ff; border: 1px solid #cfe2fb; border-radius: 10px; padding: 8px 12px; margin: 6px 0 8px; font-size: 13px; line-height: 1.7; }
   .wx.err { background: #fff4f2; border-color: #f5cfc8; color: #b3392a; }
+  .wx.tour { background: #f3f9f0; border-color: #d3e8c9; } .wx.tour.err { background: #fff4f2; border-color: #f5cfc8; }
+  .wx .tr { padding: 3px 0; border-top: 1px dashed #d3e8c9; } .wx .tr:first-of-type { margin-top: 4px; }
   .pin { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,.4); position: relative; }
   .pin::after { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #fff; top: 7px; left: 7px; }
   .pin.on { box-shadow: 0 0 0 3px #f0b400, 0 2px 6px rgba(0,0,0,.5); }
@@ -194,11 +196,41 @@ function renderDetail(id) {
      <div class="meta"><span class="tag">${esc(d.category)}</span><span class="tag b">${esc(d.dir1)}${d.dir2 !== "해당없음" ? " › " + esc(d.dir2) : ""}</span><br>
        📍 ${esc(d.address)}<br>🧭 위도 ${d.lat} · 경도 ${d.lng}${d.keywords ? "<br>🏷 " + esc(d.keywords.replace(/\./g, ", ")) : ""}</div>
      <div class="wx" id="wx"></div>
+     <div class="wx tour" id="tour"></div>
      ${favBtn(d)}
      <p><b>${esc(d.title)}</b></p>${d.subtitle ? `<div class="meta">${esc(d.subtitle)}</div>` : ""}
      <p>${esc(d.content)}</p>
      <div class="meta">저작자: ${esc(d.author)} · <a href="${esc(d.url)}" target="_blank" rel="noopener">제주도 누리집에서 전체 보기 ↗</a></div>`;
   loadWeather(d);
+  loadTour(d);
+}
+
+// ---- 주변 관광지 (한국관광공사 위치기반 조회, 서버 함수 /api/tour 경유 — 키는 서버 환경변수에만 있음) ----
+const tourCache = {};
+function showTour(t) {
+  const el = $("tour");
+  if (!el) return;
+  if (t.error) { el.className = "wx tour err"; el.textContent = "⚠ 주변 관광지를 가져오지 못했어요. (" + t.error + ")"; return; }
+  el.className = "wx tour";
+  el.innerHTML = `<b>📍 주변 관광지·맛집</b> <span class="meta">(한국관광공사 · 가까운 순 ${t.items.length}곳 / 반경 5km 내 총 ${esc(t.total)}곳)</span>` +
+    (t.items.length ? t.items.map((i) => `<div class="tr"><b>${esc(i.title)}</b> <span class="tag">${esc(i.type)}</span> <span class="meta">${i.dist != null ? (i.dist >= 1000 ? (i.dist / 1000).toFixed(1) + "km" : i.dist + "m") : ""} · ${esc(i.address.replace("제주특별자치도 ", ""))}</span></div>`).join("") : '<div class="meta">반경 5km 안에 등록된 곳이 없어요.</div>');
+}
+async function loadTour(d) {
+  const el = $("tour");
+  if (!el) return;
+  if (tourCache[d.id]) { showTour(tourCache[d.id]); return; }
+  if (location.protocol === "file:") { showTour({ error: "서버 없이 연 파일에서는 불러올 수 없어요. 배포된 사이트에서 확인하세요" }); return; }
+  el.className = "wx tour"; el.textContent = "⏳ 주변 관광지를 불러오는 중…";
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch(`/api/tour?lat=${d.lat}&lng=${d.lng}`, { signal: ctl.signal });
+    const t = await res.json().catch(() => ({ error: "서버 응답을 읽을 수 없음" }));
+    if (!res.ok && !t.error) t.error = "서버 오류 " + res.status;
+    if (!t.error) tourCache[d.id] = t;
+    if (selected === d.id) showTour(t);
+  } catch (e) {
+    if (selected === d.id) showTour({ error: e.name === "AbortError" ? "응답 시간 초과" : "연결 실패" });
+  } finally { clearTimeout(timer); }
 }
 
 // ---- 현재 날씨 (기상청 초단기실황, 서버 함수 /api/weather 경유 — 키는 서버 환경변수에만 있음) ----
